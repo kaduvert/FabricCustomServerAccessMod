@@ -5,12 +5,22 @@ JDK_DIR="$(pwd)/jdks"
 mkdir -p "$JDK_DIR"
 
 # JDK download URLs
+# For JDK 25, update the URL to the correct Temurin 25 GA release from:
+# https://github.com/adoptium/temurin25-binaries/releases
 java_versions=(
-    "21 https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21+35/OpenJDK21U-jdk_x64_linux_hotspot_21_35.tar.gz"
+    "21 https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2%2B13/OpenJDK21U-jdk_x64_linux_hotspot_21.0.2_13.tar.gz"
+    "25 https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25%2B36/OpenJDK25U-jdk_x64_linux_hotspot_25_36.tar.gz"
 )
 
-# Minecraft and Fabric versions to build
+# Minecraft and Fabric versions to build.
+# Format for 1.x builds:   "java_version  minecraft_version  yarn_mappings        loader_version  fabric_api_version"
+# Format for 26.1+ builds: "java_version  minecraft_version  -                    loader_version  fabric_api_version"
+#   '-' signals no Yarn mappings (game is unobfuscated from 26.1 onwards).
 versions=(
+    # ── Minecraft 26.1.x (unobfuscated, Java 25, no Yarn mappings) ───────────────
+    "25 26.1.2 - 0.19.2 0.152.1+26.1.2"
+
+    # ── Minecraft 1.21.x ─────────────────────────────────────────────────────────
     "21 1.21.11 1.21.11+build.4 0.18.4 0.141.3+1.21.11"
     "21 1.21.10 1.21.10+build.3 0.18.4 0.138.4+1.21.10"
     "21 1.21.9 1.21.9+build.1 0.18.4 0.134.1+1.21.9"
@@ -94,15 +104,26 @@ for version_info in "${versions[@]}"; do
 
     JAVA_HOME="$JDK_DIR/jdk-$java_version"
 
-    echo "> building for $minecraft_version on java $java_version"
+    echo "> building for minecraft $minecraft_version on java $java_version"
 
-    ./gradlew build jar -q \
-        -Dorg.gradle.java.home="$JAVA_HOME" \
-        -Dorg.gradle.project.java_version="$java_version" \
-        -Dorg.gradle.project.minecraft_version="$minecraft_version" \
-        -Dorg.gradle.project.yarn_mappings="$yarn_mappings" \
-        -Dorg.gradle.project.loader_version="$loader_version" \
-        -Dorg.gradle.project.fabric_version="$fabric_version"
+    if [ "$yarn_mappings" == "-" ]; then
+        # ── 26.1+ build: no Yarn mappings (game is unobfuscated) ─────────────────
+        ./gradlew build jar -q \
+            -Dorg.gradle.java.home="$JAVA_HOME" \
+            -Dorg.gradle.project.java_version="$java_version" \
+            -Dorg.gradle.project.minecraft_version="$minecraft_version" \
+            -Dorg.gradle.project.loader_version="$loader_version" \
+            -Dorg.gradle.project.fabric_version="$fabric_version"
+    else
+        # ── Legacy build: Yarn mappings required ──────────────────────────────────
+        ./gradlew build jar -q \
+            -Dorg.gradle.java.home="$JAVA_HOME" \
+            -Dorg.gradle.project.java_version="$java_version" \
+            -Dorg.gradle.project.minecraft_version="$minecraft_version" \
+            -Dorg.gradle.project.yarn_mappings="$yarn_mappings" \
+            -Dorg.gradle.project.loader_version="$loader_version" \
+            -Dorg.gradle.project.fabric_version="$fabric_version"
+    fi
 
     echo "Done"
 done

@@ -1,83 +1,94 @@
 plugins {
-	id 'fabric-loom' version '1.13.3'
-	id 'maven-publish'
+    // Declare both plugin IDs but do not apply them yet
+    id 'net.fabricmc.fabric-loom' version '1.15.2' apply false
+    id 'net.fabricmc.fabric-loom-remap' version '1.15.2' apply false
+    id 'maven-publish'
 }
 
-def javaVersion = project.hasProperty('java_version') ? project.java_version.toInteger() : 17
+def javaVersion = project.hasProperty('java_version') ? project.java_version.toInteger() : 21
+
+// Detect 26.1+ builds: version strings use a year-based scheme (e.g. "26.1.2")
+def is261Plus = project.hasProperty('minecraft_version') && !project.minecraft_version.startsWith('1.')
+
+// Conditionally apply the correct Loom plugin based on the Minecraft version
+if (is261Plus) {
+    apply plugin: 'net.fabricmc.fabric-loom'
+} else {
+    apply plugin: 'net.fabricmc.fabric-loom-remap'
+}
 
 java {
     sourceCompatibility = JavaVersion.toVersion(javaVersion)
     targetCompatibility = JavaVersion.toVersion(javaVersion)
+    withSourcesJar()
 }
 
 loom {
-	enableModProvidedJavadoc = false
+    enableModProvidedJavadoc = false
 }
 
 base {
-	archivesName = project.archives_base_name
+    archivesName = project.archives_base_name
 }
 
 version = "${project.mod_version}-${project.minecraft_version}"
 group = project.maven_group
 
 repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
+    // Loom adds the essential Minecraft / Fabric Maven repositories automatically.
 }
 
 dependencies {
-	// To change the versions see the gradle.properties file
-	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-	// mappings loom.officialMojangMappings()
-	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
 
-	// Fabric API. This is technically optional, but you probably want it anyway.
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    if (!is261Plus) {
+        // ── Legacy builds (Minecraft 1.x, Yarn-mapped) ─────────────────────────────
+        mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 
-	// Uncomment the following line to enable the deprecated Fabric API modules. 
-	// These are included in the Fabric API production distribution and allow you to update your mod to the latest modules at a later more convenient time.
-
-	// modImplementation "net.fabricmc.fabric-api:fabric-api-deprecated:${project.fabric_version}"
+        modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    } else {
+        // ── Modern builds (Minecraft 26.1+, unobfuscated) ──────────────────────────
+        implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    }
 }
 
 processResources {
-	inputs.property "version", project.version
+    inputs.property "version", project.version
 
-	filesMatching("fabric.mod.json") {
-		expand(project.properties)
-	}
+    filesMatching("fabric.mod.json") {
+        expand(project.properties)
+    }
+
+    // Inject the correct Mixin compatibility level so that:
+    //   - Legacy builds (Java 21) produce JAVA_21 → mixin applies to 1.x class files
+    //   - Modern builds (Java 25) produce JAVA_25 → mixin applies to 26.1+ class files
+    // If the level is too low for the target class, SpongePowered Mixin silently
+    // skips the injection at runtime, which would break the mod.
+    filesMatching("csam.mixins.json") {
+        expand(['mixin_java_level': "JAVA_${javaVersion}"])
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
-	// Minecraft 1.18 (1.18-pre2) upwards uses Java 17.
-	it.options.release = javaVersion
-}
-
-java {
-	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-	// if it is present.
-	// If you remove this line, sources will not be generated.
-	withSourcesJar()
+    it.options.release = javaVersion
+    it.options.encoding = 'UTF-8'
 }
 
 jar {
-	from("LICENSE") {
-		rename { "${it}_${project.archivesBaseName}"}
-	}
+    from("LICENSE") {
+        rename { "${it}_${project.archives_base_name}" }
+    }
 }
 
 publishing {
-	publications {
-		mavenJava(MavenPublication) {
-			from components.java
-		}
-	}
-
-	repositories {
-	}
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+    repositories {
+        // Add publishing targets here if needed.
+    }
 }
